@@ -21,17 +21,12 @@ static int q_search(
     if (ctx.stop) return 0;
 
     int stand_pat = state->evaluate(p.use_kp_eval, p.use_eval_mobility, &history);
-    if (stand_pat >= beta) {
-        return beta;
-    }
-    if (alpha < stand_pat) {
-        alpha = stand_pat;
-    }
+    if (stand_pat >= beta) return beta;
+    if (alpha < stand_pat) alpha = stand_pat;
 
     if (state->legal_actions.empty() && state->game_state == UNKNOWN) {
         state->get_legal_actions();
     }
-
     if (state->game_state == WIN) return P_MAX - ply;
     if (state->game_state == DRAW) return 0;
 
@@ -56,18 +51,13 @@ static int q_search(
         bool same = next->same_player_as_parent();
         int score;
 
-        if (same) {
-            score = q_search(next, alpha, beta, history, ply + 1, ctx, p);
-        } else {
-            score = -q_search(next, -beta, -alpha, history, ply + 1, ctx, p);
-        }
+        if (same) score = q_search(next, alpha, beta, history, ply + 1, ctx, p);
+        else score = -q_search(next, -beta, -alpha, history, ply + 1, ctx, p);
         
         delete next;
-
         if (score >= beta) return beta;
         if (score > alpha) alpha = score;
     }
-
     return alpha;
 }
 
@@ -91,14 +81,11 @@ static int pvs_search(
     if (state->legal_actions.empty() && state->game_state == UNKNOWN) {
         state->get_legal_actions();
     }
-
     if (state->game_state == WIN) return P_MAX - ply;
     if (state->game_state == DRAW) return 0;
 
     int rep_score;
-    if (state->check_repetition(history, rep_score)) {
-        return rep_score;
-    }
+    if (state->check_repetition(history, rep_score)) return rep_score;
     history.push(state->hash());
 
     if (depth <= 0) {
@@ -125,11 +112,8 @@ static int pvs_search(
         int score;
 
         if (first_child) {
-            if (same) {
-                score = pvs_search(next, depth - 1, alpha, beta, history, ply + 1, ctx, p);
-            } else {
-                score = -pvs_search(next, depth - 1, -beta, -alpha, history, ply + 1, ctx, p);
-            }
+            if (same) score = pvs_search(next, depth - 1, alpha, beta, history, ply + 1, ctx, p);
+            else score = -pvs_search(next, depth - 1, -beta, -alpha, history, ply + 1, ctx, p);
             first_child = false;
         } else {
             if (same) {
@@ -144,14 +128,11 @@ static int pvs_search(
                 }
             }
         }
-        
         delete next;
-
         if (score > best_score) best_score = score;
         if (best_score > alpha) alpha = best_score;
         if (alpha >= beta) break; 
     }
-
     history.pop(state->hash());
     return best_score;
 }
@@ -178,13 +159,11 @@ SearchResult MiniMax::search(
 ) {
     ctx.reset();
     MMParams p = MMParams::from_map(ctx.params);
-    SearchResult result;
-    result.depth = depth;
+    SearchResult global_result;
+    global_result.depth = 0;
 
-    if (!state->legal_actions.size()) {
-        state->get_legal_actions();
-    }
-
+    if (!state->legal_actions.size()) state->get_legal_actions();
+    
     int opp = 1 - state->player;
     std::sort(state->legal_actions.begin(), state->legal_actions.end(),
         [state, opp](const Move& m1, const Move& m2) {
@@ -194,60 +173,70 @@ SearchResult MiniMax::search(
         }
     );
 
-    int best_score = M_MAX - 10;
-    int alpha = M_MAX;
-    int beta = P_MAX;
-    int move_index = 0;
-    int total_moves = (int)state->legal_actions.size();
-    bool first_child = true;
+    // Iterative Deepening: 從深度 1 搜到指定的 depth
+    for (int d = 1; d <= depth; d++) {
+        SearchResult current_depth_result;
+        current_depth_result.depth = d;
+        int best_score = M_MAX - 10;
+        int alpha = M_MAX;
+        int beta = P_MAX;
+        int move_index = 0;
+        bool first_child = true;
 
-    for (auto& action : state->legal_actions) {
-        int score;
+        for (auto& action : state->legal_actions) {
+            if (ctx.stop) break;
 
-        if (state->game_state == WIN) {
-            score = (move_index == 0) ? P_MAX : M_MAX;
-        } else {
-            State* next = state->next_state(action);
-            if (first_child) {
-                if (next->same_player_as_parent()) {
-                    score = pvs_search(next, depth - 1, alpha, beta, history, 1, ctx, p);
-                } else {
-                    score = -pvs_search(next, depth - 1, -beta, -alpha, history, 1, ctx, p);
-                }
-                first_child = false;
+            int score;
+            if (state->game_state == WIN) {
+                score = (move_index == 0) ? P_MAX : M_MAX;
             } else {
-                if (next->same_player_as_parent()) {
-                    score = pvs_search(next, depth - 1, alpha, alpha + 1, history, 1, ctx, p);
-                    if (score > alpha && score < beta) {
-                        score = pvs_search(next, depth - 1, alpha, beta, history, 1, ctx, p);
-                    }
+                State* next = state->next_state(action);
+                if (first_child) {
+                    if (next->same_player_as_parent()) 
+                        score = pvs_search(next, d - 1, alpha, beta, history, 1, ctx, p);
+                    else 
+                        score = -pvs_search(next, d - 1, -beta, -alpha, history, 1, ctx, p);
+                    first_child = false;
                 } else {
-                    score = -pvs_search(next, depth - 1, -alpha - 1, -alpha, history, 1, ctx, p);
-                    if (score > alpha && score < beta) {
-                        score = -pvs_search(next, depth - 1, -beta, -alpha, history, 1, ctx, p);
+                    if (next->same_player_as_parent()) {
+                        score = pvs_search(next, d - 1, alpha, alpha + 1, history, 1, ctx, p);
+                        if (score > alpha && score < beta) 
+                            score = pvs_search(next, d - 1, alpha, beta, history, 1, ctx, p);
+                    } else {
+                        score = -pvs_search(next, d - 1, -alpha - 1, -alpha, history, 1, ctx, p);
+                        if (score > alpha && score < beta) 
+                            score = -pvs_search(next, d - 1, -beta, -alpha, history, 1, ctx, p);
                     }
                 }
+                delete next;
             }
-            delete next;
+
+            if (score > best_score) {
+                best_score = score;
+                current_depth_result.best_move = action;
+            }
+            if (best_score > alpha) alpha = best_score;
+            move_index++;
         }
 
-        if (score > best_score) {
-            best_score = score;
-            result.best_move = action;
-            if (p.report_partial && ctx.on_root_update) {
-               ctx.on_root_update({result.best_move, best_score, depth, move_index + 1, total_moves});
-            }
-        } 
-        if (best_score > alpha) alpha = best_score;
-        move_index++;
+        if (ctx.stop) break;
+
+        // 更新全球最佳結果
+        global_result.best_move = current_depth_result.best_move;
+        global_result.score = best_score;
+        global_result.depth = d;
+        global_result.nodes = ctx.nodes;
+        global_result.pv = { global_result.best_move };
+
+        if (p.report_partial && ctx.on_root_update) {
+            ctx.on_root_update({global_result.best_move, best_score, d, move_index, (int)state->legal_actions.size()});
+        }
+        
+        // 如果已經搜到必勝，就不需要再往更深搜了
+        if (best_score >= P_MAX - 100) break;
     }
 
-    result.score = best_score;
-    result.nodes = ctx.nodes;
-    if (!state->legal_actions.empty()) {
-        result.pv = { result.best_move };
-    }
-    return result;
+    return global_result;
 }
 
 ParamMap MiniMax::default_params() {
