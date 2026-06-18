@@ -89,8 +89,8 @@ int State::evaluate(bool use_kp_eval, bool use_mobility, const GameHistory* hist
     }else{
         for(int r = 0; r < BOARD_H; r++){
             for(int c = 0; c < BOARD_W; c++){
-                self_score += simple_material[self_board[r][c]];
-                oppn_score += simple_material[oppn_board[r][c]];
+                self_score += simple_material[(int)self_board[r][c]];
+                oppn_score += simple_material[(int)oppn_board[r][c]];
             }
         }
     }
