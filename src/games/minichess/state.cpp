@@ -7,49 +7,30 @@
 #include "config.hpp"
 #include "../../policy/game_history.hpp"
 
-
 /*============================================================
  * KP (King-Piece) Evaluation tables
- *
- * Always compiled. Toggled at runtime via use_kp_eval param.
  *============================================================*/
-
-// KP material (10x scale for fine positional granularity)
 static const int kp_material[7] = {0, 20, 60, 70, 80, 200, 1000};
-
-// Material-only (simple scale)
 static const int simple_material[7] = {0, 2, 6, 7, 8, 20, 100};
 
-// Piece-Square Tables (white perspective, mirror for black)
 static const int pst[6][BOARD_H][BOARD_W] = {
-    // Pawn
     {{ 0,  0,  0,  0,  0}, {15, 15, 15, 15, 15}, { 4,  6, 10,  6,  4},
      { 2,  4,  6,  4,  2}, { 0,  2,  2,  2,  0}, { 0,  0,  0,  0,  0}},
-    // Rook
     {{ 2,  2,  2,  2,  2}, { 4,  4,  4,  4,  4}, { 0,  0,  2,  0,  0},
      { 0,  0,  2,  0,  0}, { 0,  0,  2,  0,  0}, { 0,  0,  0,  0,  0}},
-    // Knight
     {{-4, -2,  0, -2, -4}, {-2,  2,  4,  2, -2}, { 0,  4,  6,  4,  0},
      { 0,  4,  6,  4,  0}, {-2,  2,  4,  2, -2}, {-4, -2,  0, -2, -4}},
-    // Bishop
     {{-2,  0,  0,  0, -2}, { 0,  3,  4,  3,  0}, { 0,  4,  4,  4,  0},
      { 0,  4,  4,  4,  0}, { 0,  3,  4,  3,  0}, {-2,  0,  0,  0, -2}},
-    // Queen
     {{-2,  0,  2,  0, -2}, { 0,  2,  4,  2,  0}, { 0,  4,  6,  4,  0},
      { 0,  4,  6,  4,  0}, { 0,  2,  4,  2,  0}, {-2,  0,  2,  0, -2}},
-    // King
     {{-8, -8, -8, -8, -8}, {-4, -4, -4, -4, -4}, {-4, -4, -4, -4, -4},
      {-4, -4, -4, -4, -4}, { 4,  4,  0,  4,  4}, { 6,  6,  2,  6,  6}},
 };
 
-// King tropism weights
 static const int tropism_w[7] = {0, 0, 3, 3, 2, 5, 0};
 
-static int king_tropism(
-    int piece_type,
-    int pr, int pc,
-    int ekr, int ekc
-){
+static int king_tropism(int piece_type, int pr, int pc, int ekr, int ekc){
     int dist = std::max(std::abs(pr - ekr), std::abs(pc - ekc));
     if(dist <= 2){
         return tropism_w[piece_type] * (3 - dist);
@@ -57,35 +38,24 @@ static int king_tropism(
     return 0;
 }
 
-
 /*============================================================
  * evaluate() — runtime-selectable eval strategy
  *============================================================*/
+int State::evaluate(bool use_kp_eval, bool use_mobility, const GameHistory* history){
+    (void)history;
 
-int State::evaluate(
-    bool use_kp_eval,
-    bool use_mobility,
-    const GameHistory* history
-){
-    (void)history; // just to suppress warning
-
-    // [ Hackathon TODO 1-1 ]
     if(this->game_state == WIN){
         return P_MAX;
     }
-    // if in win state, return max score(you can check base_state.hpp for max score)
     
     auto self_board = this->board.board[this->player];
     auto oppn_board = this->board.board[1 - this->player];
     int self_score = 0, oppn_score = 0;
 
     if(use_kp_eval){
-        /* === KP eval: material + PST + tropism === */
-
         int self_kr = -1, self_kc = -1;
         int oppn_kr = -1, oppn_kc = -1;
-        // [ Hackathon TODO 1-3 ]
-        // get the position for player's king and opponent's king
+        
         for(int r = 0; r < BOARD_H; r++){
             for(int c = 0; c < BOARD_W; c++){
                 if(self_board[r][c] == 6){ self_kr = r; self_kc = c; }
@@ -93,63 +63,48 @@ int State::evaluate(
             }
         }
 
-        // [ Hackathon TODO 1-4 ]
-        // sum player/opponent pieces' value and add to score
         for(int r = 0; r < BOARD_H; r++){
             for(int c = 0; c < BOARD_W; c++){
-                // 處理我方棋子
                 int p_self = self_board[r][c];
                 if(p_self > 0){
                     self_score += kp_material[p_self];
-                    
-                    // 根據玩家顏色翻轉 PST (0 是白方，從下面往上走)
                     int r_idx = (this->player == 0) ? r : (BOARD_H - 1 - r);
                     self_score += pst[p_self - 1][r_idx][c];
-                    
                     if(oppn_kr != -1){
                         self_score += king_tropism(p_self, r, c, oppn_kr, oppn_kc);
                     }
                 }
 
-                // 處理敵方棋子
                 int p_oppn = oppn_board[r][c];
                 if(p_oppn > 0){
                     oppn_score += kp_material[p_oppn];
-                    
-                    // 對手視角的 PST 也要跟著翻轉
                     int r_idx = (this->player == 0) ? (BOARD_H - 1 - r) : r;
                     oppn_score += pst[p_oppn - 1][r_idx][c];
-                    
                     if(self_kr != -1){
                         oppn_score += king_tropism(p_oppn, r, c, self_kr, self_kc);
                     }
                 }
             }
         }
-
     }else{
-        /* === Simple material-only eval === */
-
-        // [ Hackathon TODO 1-2 ]
-        // Simply add each piece's value to score
         for(int r = 0; r < BOARD_H; r++){
             for(int c = 0; c < BOARD_W; c++){
                 self_score += simple_material[self_board[r][c]];
                 oppn_score += simple_material[oppn_board[r][c]];
             }
         }
-
     }
 
     int bonus = 0;
 
-    /* === Mobility bonus === */
     if(use_mobility){
-        // [ Hackathon TODO 1-5 ]
+        if (this->legal_actions.empty() && this->game_state == UNKNOWN) {
+            this->get_legal_actions();
+        }
         int self_mobility = this->legal_actions.size();
         
-        State oppn_state(*this);
-        oppn_state.player = 1 - this->player;
+        // 【效能解放】只複製 Board 本體，絕不深拷貝龐大的 Vector，省下海量資源！
+        State oppn_state(this->board, 1 - this->player);
         oppn_state.get_legal_actions();
         int oppn_mobility = oppn_state.legal_actions.size();
 
@@ -158,8 +113,6 @@ int State::evaluate(
 
     return self_score - oppn_score + bonus;
 }
-
-
 
 /*============================================================
  * Zobrist hash for transposition table
@@ -207,13 +160,6 @@ uint64_t State::compute_hash_full() const{
     return h;
 }
 
-
-/**
- * @brief return next state after the move
- *
- * @param move
- * @return State*
- */
 State* State::next_state(const Move& move){
     if(!zobrist_ready){ init_zobrist(); }
 
@@ -224,26 +170,20 @@ State* State::next_state(const Move& move){
 
     int8_t orig_piece = next.board[p][from.first][from.second];
     int8_t moved = orig_piece;
-    //promotion for pawn
     if(moved == 1 && (to.first==BOARD_H-1 || to.first==0)){
         moved = 5;
     }
 
-    /* Incremental hash update */
     uint64_t h = this->hash();
-    h ^= zobrist_side;  /* toggle side to move */
-
-    /* XOR out piece from source */
+    h ^= zobrist_side;  
     h ^= zobrist_piece[p][orig_piece][from.first][from.second];
 
-    /* XOR out captured piece at destination */
     int8_t captured = next.board[opp][to.first][to.second];
     if(captured){
         h ^= zobrist_piece[opp][captured][to.first][to.second];
         next.board[opp][to.first][to.second] = 0;
     }
 
-    /* XOR in piece at destination */
     h ^= zobrist_piece[p][moved][to.first][to.second];
 
     next.board[p][from.first][from.second] = 0;
@@ -254,7 +194,6 @@ State* State::next_state(const Move& move){
     ns->zobrist_valid = true;
     return ns;
 }
-
 
 static const int move_table_rook_bishop[8][7][2] = {
   {{0, 1}, {0, 2}, {0, 3}, {0, 4}, {0, 5}, {0, 6}, {0, 7}},
@@ -267,7 +206,6 @@ static const int move_table_rook_bishop[8][7][2] = {
   {{-1, -1}, {-2, -2}, {-3, -3}, {-4, -4}, {-5, -5}, {-6, -6}, {-7, -7}},
 };
 
-// [ Hackathon TODO 2-1 ]
 static const int move_table_knight[8][2] = {
   {1, 2}, {1, -2}, {-1, 2}, {-1, -2},
   {2, 1}, {2, -1}, {-2, 1}, {-2, -1}
@@ -278,10 +216,6 @@ static const int move_table_king[8][2] = {
   {1, 1}, {1, -1}, {-1, 1}, {-1, -1},
 };
 
-
-/*============================================================
- * Naive move generation (array-based, branch-heavy)
- *============================================================*/
 void State::get_legal_actions_naive(){
     this->game_state = NONE;
     std::vector<Move> all_actions;
@@ -294,9 +228,8 @@ void State::get_legal_actions_naive(){
         for(int j=0; j<BOARD_W; j+=1){
             if((now_piece=self_board[i][j])){
                 switch(now_piece){
-                    case 1: //pawn
+                    case 1: 
                         if(this->player && i<BOARD_H-1){
-                            //black
                             if(!oppn_board[i+1][j] && !self_board[i+1][j]){
                                 all_actions.push_back(Move(Point(i, j), Point(i+1, j)));
                             }
@@ -317,7 +250,6 @@ void State::get_legal_actions_naive(){
                                 }
                             }
                         }else if(!this->player && i>0){
-                            //white
                             if(!oppn_board[i-1][j] && !self_board[i-1][j]){
                                 all_actions.push_back(Move(Point(i, j), Point(i-1, j)));
                             }
@@ -340,14 +272,12 @@ void State::get_legal_actions_naive(){
                         }
                         break;
 
-                    case 2: //rook
-                    case 4: //bishop
-                    case 5: //queen
+                    case 2: case 4: case 5: 
                         int st, end;
                         switch(now_piece){
-                            case 2: st=0; end=4; break; //rook
-                            case 4: st=4; end=8; break; //bishop
-                            case 5: st=0; end=8; break; //queen
+                            case 2: st=0; end=4; break; 
+                            case 4: st=4; end=8; break; 
+                            case 5: st=0; end=8; break; 
                             default: st=0; end=-1;
                         }
                         for(int part=st; part<end; part+=1){
@@ -379,26 +309,17 @@ void State::get_legal_actions_naive(){
                         }
                         break;
 
-                    case 3: //knight
-                        // [ Hackathon TODO 2-2 ]
+                    case 3: 
                         for(auto move : move_table_knight){
                             int p[2] = {move[0] + i, move[1] + j};
-
-                            // 檢查是否超出邊界
                             if(p[0] >= BOARD_H || p[0] < 0 || p[1] >= BOARD_W || p[1] < 0){
                                 continue;
                             }
-                            
-                            
                             now_piece = self_board[p[0]][p[1]];
                             if(now_piece){
                                 continue;
                             }
-
-                            
                             all_actions.push_back(Move(Point(i, j), Point(p[0], p[1])));
-
-                            
                             oppn_piece = oppn_board[p[0]][p[1]];
                             if(oppn_piece == 6){
                                 this->game_state = WIN;
@@ -408,10 +329,9 @@ void State::get_legal_actions_naive(){
                         }
                         break;
 
-                    case 6: //king
+                    case 6: 
                         for(auto move: move_table_king){
                             int p[2] = {move[0] + i, move[1] + j};
-
                             if(p[0]>=BOARD_H || p[0]<0 || p[1]>=BOARD_W || p[1]<0){
                                 continue;
                             }
@@ -419,9 +339,7 @@ void State::get_legal_actions_naive(){
                             if(now_piece){
                                 continue;
                             }
-
                             all_actions.push_back(Move(Point(i, j), Point(p[0], p[1])));
-
                             oppn_piece = oppn_board[p[0]][p[1]];
                             if(oppn_piece==6){
                                 this->game_state = WIN;
@@ -437,27 +355,16 @@ void State::get_legal_actions_naive(){
     this->legal_actions = all_actions;
 }
 
-
-/*============================================================
- * Bitboard move generation
- *
- * 6x5 = 30 squares fit in a uint32_t.
- * Square (r,c) -> bit index r*5+c.
- * Precomputed attack masks for leapers (knight, king, pawn).
- * Bit-scan loop (__builtin_ctz) replaces nested array iteration.
- *============================================================*/
 #define BB_SQ(r, c)  ((r) * BOARD_W + (c))
 #define BB_ROW(sq)   ((sq) / BOARD_W)
 #define BB_COL(sq)   ((sq) % BOARD_W)
 
-// Precomputed attack tables (initialized once)
-static uint32_t bb_knight[30];       // knight attack mask per square
-static uint32_t bb_king[30];         // king attack mask per square
-static uint32_t bb_pawn_push[2][30]; // pawn push target per player/square
-static uint32_t bb_pawn_cap[2][30];  // pawn capture targets per player/square
+static uint32_t bb_knight[30];       
+static uint32_t bb_king[30];         
+static uint32_t bb_pawn_push[2][30]; 
+static uint32_t bb_pawn_cap[2][30];  
 static bool bb_ready = false;
 
-// Sliding piece direction vectors (0-3: rook, 4-7: bishop, 0-7: queen)
 static const int bb_dr[8] = {0, 0, 1, -1, 1, 1, -1, -1};
 static const int bb_dc[8] = {1, -1, 0, 0, 1, -1, 1, -1};
 
@@ -471,7 +378,6 @@ static void bb_init(){
         for(int c = 0; c < BOARD_W; c++){
             int sq = BB_SQ(r, c);
 
-            // Knight
             bb_knight[sq] = 0;
             for(int d = 0; d < 8; d++){
                 int nr = r + kn_dr[d], nc = c + kn_dc[d];
@@ -480,7 +386,6 @@ static void bb_init(){
                 }
             }
 
-            // King
             bb_king[sq] = 0;
             for(int d = 0; d < 8; d++){
                 int nr = r + ki_dr[d], nc = c + ki_dc[d];
@@ -489,7 +394,6 @@ static void bb_init(){
                 }
             }
 
-            // Pawn (player 0 = white, advances up = row-1)
             bb_pawn_push[0][sq] = 0;
             bb_pawn_cap[0][sq] = 0;
             if(r > 0){
@@ -502,7 +406,6 @@ static void bb_init(){
                 }
             }
 
-            // Pawn (player 1 = black, advances down = row+1)
             bb_pawn_push[1][sq] = 0;
             bb_pawn_cap[1][sq] = 0;
             if(r < BOARD_H-1){
@@ -531,10 +434,9 @@ void State::get_legal_actions_bitboard(){
     int self = this->player;
     int oppn = 1 - self;
 
-    // Build occupancy bitmasks and piece-type lookup
     uint32_t self_occ = 0, oppn_occ = 0;
-    int self_pt[30] = {};  // piece type at each square (self)
-    int oppn_pt[30] = {};  // piece type at each square (opponent)
+    int self_pt[30] = {};  
+    int oppn_pt[30] = {};  
 
     for(int r = 0; r < BOARD_H; r++){
         for(int c = 0; c < BOARD_W; c++){
@@ -552,7 +454,6 @@ void State::get_legal_actions_bitboard(){
 
     uint32_t all_occ = self_occ | oppn_occ;
 
-    // Iterate own pieces via bit scan
     uint32_t pieces = self_occ;
     while(pieces){
         int sq = __builtin_ctz(pieces);
@@ -562,10 +463,9 @@ void State::get_legal_actions_bitboard(){
         uint32_t targets = 0;
 
         switch(piece){
-            case 1: { // Pawn
+            case 1: { 
                 uint32_t push = bb_pawn_push[self][sq] & ~all_occ;
                 uint32_t cap = bb_pawn_cap[self][sq] & oppn_occ;
-                // Check for king capture in captures
                 uint32_t cap_scan = cap;
                 while(cap_scan){
                     int to = __builtin_ctz(cap_scan);
@@ -581,7 +481,7 @@ void State::get_legal_actions_bitboard(){
                 break;
             }
 
-            case 3: { // Knight
+            case 3: { 
                 targets = bb_knight[sq] & ~self_occ;
                 uint32_t opp_targets = targets & oppn_occ;
                 while(opp_targets){
@@ -597,7 +497,7 @@ void State::get_legal_actions_bitboard(){
                 break;
             }
 
-            case 6: { // King
+            case 6: { 
                 targets = bb_king[sq] & ~self_occ;
                 uint32_t opp_targets = targets & oppn_occ;
                 while(opp_targets){
@@ -613,9 +513,9 @@ void State::get_legal_actions_bitboard(){
                 break;
             }
 
-            case 2: // Rook
-            case 4: // Bishop
-            case 5: { // Queen
+            case 2: 
+            case 4: 
+            case 5: { 
                 int d_start = (piece == 4) ? 4 : 0;
                 int d_end   = (piece == 2) ? 4 : 8;
                 for(int d = d_start; d < d_end; d++){
@@ -624,7 +524,7 @@ void State::get_legal_actions_bitboard(){
                         int to = BB_SQ(cr, cc);
                         uint32_t to_bit = 1u << to;
                         if(self_occ & to_bit){
-                            break; // own piece blocks
+                            break; 
                         }
 
                         if((oppn_occ & to_bit) && oppn_pt[to] == 6){
@@ -636,7 +536,7 @@ void State::get_legal_actions_bitboard(){
 
                         targets |= to_bit;
                         if(oppn_occ & to_bit){
-                            break; // captured, stop sliding
+                            break; 
                         }
                         cr += bb_dr[d]; cc += bb_dc[d];
                     }
@@ -645,7 +545,6 @@ void State::get_legal_actions_bitboard(){
             }
         }
 
-        // Convert target bitmask to Move objects
         while(targets){
             int to = __builtin_ctz(targets);
             targets &= targets - 1;
@@ -655,10 +554,6 @@ void State::get_legal_actions_bitboard(){
     }
 }
 
-
-/*============================================================
- * Dispatcher
- *============================================================*/
 void State::get_legal_actions(){
     #ifdef USE_BITBOARD
     get_legal_actions_bitboard();
@@ -667,16 +562,11 @@ void State::get_legal_actions(){
     #endif
 }
 
-
 const char piece_table[2][7][5] = {
   {" ", "♙", "♖", "♘", "♗", "♕", "♔"},
   {" ", "♟", "♜", "♞", "♝", "♛", "♚"}
 };
-/**
- * @brief encode the output for command line output
- * 
- * @return std::string 
- */
+
 std::string State::encode_output() const{
     std::stringstream ss;
     int now_piece;
@@ -696,12 +586,6 @@ std::string State::encode_output() const{
     return ss.str();
 }
 
-
-/**
- * @brief encode the state to the format for player
- * 
- * @return std::string 
- */
 std::string State::encode_state(){
     std::stringstream ss;
     ss << this->player;
@@ -719,15 +603,12 @@ std::string State::encode_state(){
     return ss.str();
 }
 
-
 BaseState* State::create_null_state() const{
     State* s = new State(this->board, 1 - this->player);
     s->get_legal_actions();
     return s;
 }
 
-
-/* === Board serialization === */
 static const char* piece_chars = ".PRNBQK";
 static const char* piece_chars_lower = ".prnbqk";
 
@@ -787,13 +668,6 @@ void State::decode_board(const std::string& s, int side_to_move){
     get_legal_actions();
 }
 
-
-/* (Zobrist tables moved above next_state) */
-
-
-/*============================================================
- * Cell display for protocol (d command)
- *============================================================*/
 std::string State::cell_display(int row, int col) const{
     int w = static_cast<int>(board.board[0][row][col]);
     int b = static_cast<int>(board.board[1][row][col]);
@@ -808,10 +682,9 @@ std::string State::cell_display(int row, int col) const{
     }
 }
 
-/* === Repetition: chess 3-fold rule === */
 bool State::check_repetition(const GameHistory& history, int& out_score) const {
     if(history.count(hash()) >= 3){
-        out_score = 0;  /* draw */
+        out_score = 0;  
         return true;
     }
     return false;

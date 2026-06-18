@@ -2,13 +2,13 @@
 #include "search_types.hpp"
 #include "game_history.hpp"
 
-struct MMParams {
+struct SubParams {
     bool use_kp_eval = true;
     bool use_eval_mobility = true;
     bool report_partial = true;
 
-    static MMParams from_map(const ParamMap& m){
-        MMParams p;
+    static SubParams from_map(const ParamMap& m){
+        SubParams p;
         p.use_kp_eval       = param_bool(m, "UseKPEval", true);
         p.use_eval_mobility = param_bool(m, "UseEvalMobility", true);
         p.report_partial    = param_bool(m, "ReportPartial", true);
@@ -16,7 +16,7 @@ struct MMParams {
     }
 };
 
-class MiniMax{
+class Submission {
 public:
     static int eval_ctx(
         State *state,
@@ -24,7 +24,7 @@ public:
         GameHistory& history,
         int ply,
         SearchContext& ctx,
-        const MMParams& p
+        const SubParams& p
     );
     static SearchResult search(
         State *state,
