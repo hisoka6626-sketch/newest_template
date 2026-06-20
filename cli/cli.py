@@ -45,7 +45,7 @@ def _init_game(game_name: str, board_size: int | None = None) -> None:
     _game_ctx.update(_minichess_ctx())
 
 
-ALGO_CHOICES = ["minimax", "random","submission"]  # "submission" is the name of the final algo you submit (replace if needed)
+ALGO_CHOICES = ["minimax", "random","submission","pvs"]  # "submission" is the name of the final algo you submit (replace if needed)
 
 # ---------------------------------------------------------------------------
 # Board display (game-specific)
